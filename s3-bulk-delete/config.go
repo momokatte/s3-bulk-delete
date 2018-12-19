@@ -15,6 +15,7 @@ type configuration struct {
 	Region      string
 	Bucket      string
 	Concurrency uint
+	DelayMillis uint
 	Quiet       bool
 	SkipBatches string
 }
@@ -23,10 +24,14 @@ func (conf *configuration) Load() error {
 	flag.StringVar(&conf.MFA, "mfa", "", "MFA string")
 	flag.StringVar(&conf.Region, "region", "", "AWS region name to connect to")
 	flag.StringVar(&conf.Bucket, "bucket", "", "S3 bucket to delete files from")
-	flag.UintVar(&conf.Concurrency, "concurrency", 1, "")
+	flag.UintVar(&conf.Concurrency, "concurrency", 12, "Maximum number of concurrent API requests")
+	flag.UintVar(&conf.DelayMillis, "delay", 334, "Delay between API requests, in milliseconds")
 	flag.BoolVar(&conf.Quiet, "quiet", false, "Quiet mode")
 	flag.StringVar(&conf.SkipBatches, "skip", "", "Skip file, containing batch numbers to skip")
 	flag.Parse()
+	if conf.Concurrency == 1 {
+		conf.DelayMillis = 0
+	}
 	return conf.Validate()
 }
 

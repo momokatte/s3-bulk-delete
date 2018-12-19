@@ -7,7 +7,6 @@ import (
 	"time"
 
 	aws "github.com/aws/aws-sdk-go/aws"
-	awsclient "github.com/aws/aws-sdk-go/aws/client"
 	session "github.com/aws/aws-sdk-go/aws/session"
 	s3 "github.com/aws/aws-sdk-go/service/s3"
 )
@@ -20,21 +19,19 @@ type S3Deleter struct {
 }
 
 func NewS3Deleter(region string, bucket string, mfa string, quiet bool) (*S3Deleter, error) {
-	config := aws.Config{
-		Region:                        &region,
+	sess := session.Must(session.NewSession())
+	cfg := &aws.Config{
+		Region:                        aws.String(region),
 		CredentialsChainVerboseErrors: aws.Bool(true),
 		HTTPClient: &http.Client{
 			Timeout: time.Minute,
 		},
-		MaxRetries: aws.Int(4),
-		Retryer:    awsclient.DefaultRetryer{4},
-	}
-	sess, err := session.NewSession(&config)
-	if err != nil {
-		return nil, err
+		MaxRetries: aws.Int(0),
+		// LogLevel:     aws.LogLevel(aws.LogDebugWithRequestRetries),
+		UseDualStack: aws.Bool(true),
 	}
 	d := &S3Deleter{
-		client: s3.New(sess),
+		client: s3.New(sess, cfg),
 		bucket: bucket,
 		mfa:    mfa,
 		quiet:  quiet,

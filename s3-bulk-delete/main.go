@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,11 @@ func main() {
 
 	// key consumer
 	go func() {
+		var rLim *limiter.BurstRateLimiter
+		if conf.DelayMillis > 0 {
+			rLim = limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(int64(conf.DelayMillis))*time.Millisecond))
+		}
+
 		for batchNum := 1; true; batchNum += 1 {
 			// ideally move keys from heap to stack
 			var keyBuf [1000]string
@@ -70,25 +76,32 @@ func main() {
 				}
 			}
 
-			// rate limiting: fastest so far is 8 concurrency with rate limit of 1 request per second
-			// enforce maximum concurrency
+			// enforce concurrency limit
 			t := lim.AcquireToken()
-			// enforce maximum rate
-			time.Sleep(time.Second)
 
 			go func(keys []string, batchNum int) {
-				if !conf.Quiet {
-					fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batchNum)
-				}
-				if err := s3Deleter.DeleteKeys(keys); err != nil {
-					if bErr, ok := err.(BatchError); ok {
-						for _, msg := range bErr.Messages {
-							fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batchNum, msg)
-						}
-					} else {
-						fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batchNum, err.Error())
+				for {
+					if rLim != nil {
+						// enforce request rate limit
+						rLim.CheckWait()
 					}
-					os.Exit(2)
+					if !conf.Quiet {
+						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batchNum)
+					}
+					err := s3Deleter.DeleteKeys(keys)
+					if err == nil {
+						break
+					}
+					if bErr, ok := err.(BatchError); ok {
+						if !strings.Contains(bErr.Messages[0], " try again") {
+							for _, msg := range bErr.Messages {
+								fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batchNum, msg)
+							}
+							os.Exit(2)
+						}
+					}
+					// log, but retry
+					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batchNum, err.Error())
 				}
 				if !conf.Quiet {
 					fmt.Fprintf(os.Stdout, "Deleted batch %d\n", batchNum)
