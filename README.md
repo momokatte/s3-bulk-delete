@@ -6,9 +6,7 @@ Accepts a file containing batch numbers to skip so the input file can be run aga
 
 ## Request rate
 
-Through trial and error I have estimated that the S3 API will allow 3 DeleteObjects requests per second. This limit is probably per path prefix, per bucket. At that request rate, you'll probably have up to 6 requests "in flight" at any time and not benefit much from additional concurrency capacity.
-
-I have set the default concurrency to 12 with the expectation that half of the operations will be waiting and ready to execute as soon as another one has completed.
+Through trial and error I have determined that the S3 Multi-Object Delete operation is governed by the [documented rate limit](https://docs.aws.amazon.com/AmazonS3/latest/dev/request-rate-perf-considerations.html) of 3500 DELETE requests per second (per bucket + prefix). It's allowed to exceed that rate for short durations, but sustained deletes of over 3500 objects per second will eventually result in throttled API responses.
 
 ## Roadmap
 

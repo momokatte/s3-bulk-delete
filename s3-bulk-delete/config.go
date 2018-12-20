@@ -14,9 +14,11 @@ type configuration struct {
 	MFA         string
 	Region      string
 	Bucket      string
-	Concurrency uint
-	DelayMillis uint
+	BatchSize   int
+	RateLimit   int
+	Serial      bool
 	Quiet       bool
+	Debug       bool
 	SkipBatches string
 }
 
@@ -24,14 +26,13 @@ func (conf *configuration) Load() error {
 	flag.StringVar(&conf.MFA, "mfa", "", "MFA string")
 	flag.StringVar(&conf.Region, "region", "", "AWS region name to connect to")
 	flag.StringVar(&conf.Bucket, "bucket", "", "S3 bucket to delete files from")
-	flag.UintVar(&conf.Concurrency, "concurrency", 12, "Maximum number of concurrent API requests")
-	flag.UintVar(&conf.DelayMillis, "delay", 334, "Delay between API requests, in milliseconds")
+	flag.IntVar(&conf.BatchSize, "batchsize", 500, "Number of objects per batch")
+	flag.IntVar(&conf.RateLimit, "ratelimit", 3500, "Maximum number of objects to delete per second")
+	flag.BoolVar(&conf.Serial, "serial", false, "Serial mode")
 	flag.BoolVar(&conf.Quiet, "quiet", false, "Quiet mode")
+	flag.BoolVar(&conf.Debug, "debug", false, "Debug mode")
 	flag.StringVar(&conf.SkipBatches, "skip", "", "Skip file, containing batch numbers to skip")
 	flag.Parse()
-	if conf.Concurrency == 1 {
-		conf.DelayMillis = 0
-	}
 	return conf.Validate()
 }
 
@@ -39,8 +40,11 @@ func (conf configuration) Validate() error {
 	if conf.Bucket == "" {
 		return errors.New("Bucket is required")
 	}
-	if conf.Concurrency < 1 {
-		return errors.New("Concurrency must be greater than 0")
+	if conf.BatchSize < 1 || conf.BatchSize > 1000 {
+		return errors.New("BatchSize must be between 1 and 1000")
+	}
+	if conf.RateLimit < 1 {
+		return errors.New("RateLimit must be greater than 0")
 	}
 	return nil
 }

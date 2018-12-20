@@ -18,16 +18,20 @@ type S3Deleter struct {
 	quiet  bool
 }
 
-func NewS3Deleter(region string, bucket string, mfa string, quiet bool) (*S3Deleter, error) {
+func NewS3Deleter(region string, bucket string, mfa string, quiet bool, debug bool) (*S3Deleter, error) {
 	sess := session.Must(session.NewSession())
+	var loglevel *aws.LogLevelType
+	if debug {
+		loglevel = aws.LogLevel(aws.LogDebugWithRequestRetries)
+	}
 	cfg := &aws.Config{
 		Region:                        aws.String(region),
 		CredentialsChainVerboseErrors: aws.Bool(true),
 		HTTPClient: &http.Client{
 			Timeout: time.Minute,
 		},
-		MaxRetries: aws.Int(0),
-		// LogLevel:     aws.LogLevel(aws.LogDebugWithRequestRetries),
+		MaxRetries:   aws.Int(0),
+		LogLevel:     loglevel,
 		UseDualStack: aws.Bool(true),
 	}
 	d := &S3Deleter{

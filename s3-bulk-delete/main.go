@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	limiter "github.com/momokatte/go-limiter"
@@ -23,7 +22,7 @@ func main() {
 	}
 
 	var s3Deleter *S3Deleter
-	s3Deleter, mainErr = NewS3Deleter(conf.Region, conf.Bucket, conf.MFA, true)
+	s3Deleter, mainErr = NewS3Deleter(conf.Region, conf.Bucket, conf.MFA, conf.Quiet, conf.Debug)
 	if mainErr != nil {
 		fmt.Fprintln(os.Stderr, mainErr.Error())
 		os.Exit(1)
@@ -38,28 +37,78 @@ func main() {
 		}
 	}
 
-	keysInput := make(chan string, 1000*conf.Concurrency)
+	interval := (1005 * conf.BatchSize / conf.RateLimit) + 1
 
-	lim := limiter.NewTokenChanLimiter(conf.Concurrency)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	// key consumer
-	go func() {
-		var rLim *limiter.BurstRateLimiter
-		if conf.DelayMillis > 0 {
-			rLim = limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(int64(conf.DelayMillis))*time.Millisecond))
+	concurrency := 1
+	if !conf.Serial {
+		concurrency = 1000 / interval
+		if concurrency < 1 {
+			concurrency = 1
+		} else if concurrency > 12 {
+			concurrency = 12
 		}
+	}
+	cLim := limiter.NewTokenChanLimiter(uint(concurrency))
 
+	keysInput := make(chan string, conf.BatchSize*concurrency)
+	batches := make(chan keyBatch, concurrency*2)
+	batchesConsumed := make(chan bool)
+
+	if !conf.Quiet {
+		fmt.Fprintf(os.Stdout, "Concurrency: %d\n", concurrency)
+		fmt.Fprintf(os.Stdout, "Request interval: %dms\n", interval)
+	}
+
+	// deleter (batch consumer)
+	go func() {
+		rLim := limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(interval)*time.Millisecond))
+
+		for batch := range batches {
+			// enforce concurrency limit
+			t := cLim.AcquireToken()
+
+			go func(batch keyBatch) {
+				for {
+					if rLim != nil {
+						// enforce request rate limit
+						rLim.CheckWait()
+					}
+					if !conf.Quiet {
+						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batch.Num)
+					}
+					err := s3Deleter.DeleteKeys(batch.Keys)
+					if err == nil {
+						break
+					}
+					if bErr, ok := err.(BatchError); ok {
+						if !strings.Contains(bErr.Messages[0], " try again") {
+							for _, msg := range bErr.Messages {
+								fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batch.Num, msg)
+							}
+							os.Exit(2)
+						}
+					}
+					// log, but retry
+					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batch.Num, err.Error())
+				}
+				if !conf.Quiet {
+					fmt.Fprintf(os.Stdout, "Deleted batch %d\n", batch.Num)
+				}
+				cLim.ReleaseToken(t)
+			}(batch)
+		}
+		batchesConsumed <- true
+	}()
+
+	// batcher (key consumer)
+	go func() {
 		for batchNum := 1; true; batchNum += 1 {
-			// ideally move keys from heap to stack
-			var keyBuf [1000]string
+			keys := make([]string, conf.BatchSize)
 			var keyIdx int
 			for key := range keysInput {
-				keyBuf[keyIdx] = key
+				keys[keyIdx] = key
 				keyIdx += 1
-				if keyIdx >= 1000 {
+				if keyIdx >= conf.BatchSize {
 					break
 				}
 			}
@@ -75,41 +124,9 @@ func main() {
 					continue
 				}
 			}
-
-			// enforce concurrency limit
-			t := lim.AcquireToken()
-
-			go func(keys []string, batchNum int) {
-				for {
-					if rLim != nil {
-						// enforce request rate limit
-						rLim.CheckWait()
-					}
-					if !conf.Quiet {
-						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batchNum)
-					}
-					err := s3Deleter.DeleteKeys(keys)
-					if err == nil {
-						break
-					}
-					if bErr, ok := err.(BatchError); ok {
-						if !strings.Contains(bErr.Messages[0], " try again") {
-							for _, msg := range bErr.Messages {
-								fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batchNum, msg)
-							}
-							os.Exit(2)
-						}
-					}
-					// log, but retry
-					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batchNum, err.Error())
-				}
-				if !conf.Quiet {
-					fmt.Fprintf(os.Stdout, "Deleted batch %d\n", batchNum)
-				}
-				lim.ReleaseToken(t)
-			}(keyBuf[:keyIdx], batchNum)
+			batches <- keyBatch{batchNum, keys[:keyIdx]}
 		}
-		wg.Done()
+		close(batches)
 	}()
 
 	// key producer
@@ -121,11 +138,11 @@ func main() {
 	close(keysInput)
 
 	// wait until last batch of keys is consumed
-	wg.Wait()
+	<-batchesConsumed
 
 	// drain all the tokens after consumers are done with them
-	for i := conf.Concurrency; i > 0; i -= 1 {
-		_ = lim.AcquireToken()
+	for i := concurrency; i > 0; i -= 1 {
+		_ = cLim.AcquireToken()
 	}
 }
 
@@ -143,4 +160,9 @@ func scanInputKeys(r io.Reader, keysInput chan<- string) error {
 		keysInput <- string(b)
 	}
 	return nil
+}
+
+type keyBatch struct {
+	Num  int
+	Keys []string
 }
