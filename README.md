@@ -1,7 +1,7 @@
 s3-bulk-delete
 ==============
 
-A Go app for batch-deleting files from an Amazon S3 bucket using the Multi-Object Delete operation.
+A Go app for bulk-deleting files from an Amazon S3 bucket using the Multi-Object Delete operation.
 
 Accepts a file containing batch numbers to skip so the input file can be run again after interruption.
 
