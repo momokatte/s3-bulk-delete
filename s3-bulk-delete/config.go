@@ -16,7 +16,8 @@ type configuration struct {
 	Bucket      string
 	BatchSize   int
 	RateLimit   int
-	Serial      bool
+	CFactor     int
+	CMax        int
 	Quiet       bool
 	Debug       bool
 	SkipBatches string
@@ -26,9 +27,10 @@ func (conf *configuration) Load() error {
 	flag.StringVar(&conf.MFA, "mfa", "", "MFA string")
 	flag.StringVar(&conf.Region, "region", "", "AWS region name to connect to")
 	flag.StringVar(&conf.Bucket, "bucket", "", "S3 bucket to delete files from")
-	flag.IntVar(&conf.BatchSize, "batchsize", 500, "Number of objects per batch")
-	flag.IntVar(&conf.RateLimit, "ratelimit", 3500, "Maximum number of objects to delete per second")
-	flag.BoolVar(&conf.Serial, "serial", false, "Serial mode")
+	flag.IntVar(&conf.BatchSize, "batchsize", 870, "Number of objects per batch")
+	flag.IntVar(&conf.RateLimit, "ratelimit", 3480, "Maximum number of objects to delete per second")
+	flag.IntVar(&conf.CFactor, "cfactor", 3000, "Time window for calculating concurrency, in milliseconds")
+	flag.IntVar(&conf.CMax, "cmax", 16, "Maximum number of concurrent requests")
 	flag.BoolVar(&conf.Quiet, "quiet", false, "Quiet mode")
 	flag.BoolVar(&conf.Debug, "debug", false, "Debug mode")
 	flag.StringVar(&conf.SkipBatches, "skip", "", "Skip file, containing batch numbers to skip")

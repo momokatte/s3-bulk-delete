@@ -37,16 +37,15 @@ func main() {
 		}
 	}
 
-	interval := (1005 * conf.BatchSize / conf.RateLimit) + 1
-
-	concurrency := 1
-	if !conf.Serial {
-		concurrency = 1000 / interval
-		if concurrency < 1 {
-			concurrency = 1
-		} else if concurrency > 12 {
-			concurrency = 12
-		}
+	interval := (1000 * conf.BatchSize / conf.RateLimit)
+	if interval < 1 {
+		interval = 1
+	}
+	concurrency := conf.CFactor / interval
+	if concurrency < 1 {
+		concurrency = 1
+	} else if concurrency > conf.CMax {
+		concurrency = conf.CMax
 	}
 	cLim := limiter.NewTokenChanLimiter(uint(concurrency))
 
@@ -55,8 +54,9 @@ func main() {
 	batchesConsumed := make(chan bool)
 
 	if !conf.Quiet {
-		fmt.Fprintf(os.Stdout, "Concurrency: %d\n", concurrency)
+		fmt.Fprintf(os.Stdout, "Batch size: %d\n", conf.BatchSize)
 		fmt.Fprintf(os.Stdout, "Request interval: %dms\n", interval)
+		fmt.Fprintf(os.Stdout, "Maximum concurrency: %d\n", concurrency)
 	}
 
 	// deleter (batch consumer)
@@ -68,6 +68,7 @@ func main() {
 			t := cLim.AcquireToken()
 
 			go func(batch keyBatch) {
+				var dur time.Duration
 				for {
 					if rLim != nil {
 						// enforce request rate limit
@@ -76,8 +77,10 @@ func main() {
 					if !conf.Quiet {
 						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batch.Num)
 					}
+					start := time.Now()
 					err := s3Deleter.DeleteKeys(batch.Keys)
 					if err == nil {
+						dur = time.Now().Sub(start)
 						break
 					}
 					if bErr, ok := err.(BatchError); ok {
@@ -92,11 +95,12 @@ func main() {
 					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batch.Num, err.Error())
 				}
 				if !conf.Quiet {
-					fmt.Fprintf(os.Stdout, "Deleted batch %d\n", batch.Num)
+					fmt.Fprintf(os.Stdout, "Deleted batch %d (%s)\n", batch.Num, dur.String())
 				}
 				cLim.ReleaseToken(t)
 			}(batch)
 		}
+
 		batchesConsumed <- true
 	}()
 

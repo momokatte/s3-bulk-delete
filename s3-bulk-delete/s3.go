@@ -103,3 +103,6 @@ func toOIDs(keys []string) []*s3.ObjectIdentifier {
 // error messages:
 //   Access Denied
 //   We encountered an internal error. Please try again.
+//   SerializationError: failed to decode REST XML response
+//        status code: 200, request id: AC1234567890
+//        caused by: net/http: request canceled (Client.Timeout exceeded while reading body)
