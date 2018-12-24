@@ -11,16 +11,16 @@ import (
 )
 
 type configuration struct {
-	MFA         string
-	Region      string
-	Bucket      string
-	BatchSize   int
-	RateLimit   int
-	CFactor     int
-	CMax        int
-	Quiet       bool
-	Debug       bool
-	SkipBatches string
+	MFA       string
+	Region    string
+	Bucket    string
+	BatchSize int
+	RateLimit int
+	CFactor   int
+	CMax      int
+	Quiet     bool
+	Debug     bool
+	SkipFile  string
 }
 
 func (conf *configuration) Load() error {
@@ -33,7 +33,7 @@ func (conf *configuration) Load() error {
 	flag.IntVar(&conf.CMax, "cmax", 16, "Maximum number of concurrent requests")
 	flag.BoolVar(&conf.Quiet, "quiet", false, "Quiet mode")
 	flag.BoolVar(&conf.Debug, "debug", false, "Debug mode")
-	flag.StringVar(&conf.SkipBatches, "skip", "", "Skip file, containing batch numbers to skip")
+	flag.StringVar(&conf.SkipFile, "skip", "", "Skip file, containing batch numbers to skip")
 	flag.Parse()
 	return conf.Validate()
 }

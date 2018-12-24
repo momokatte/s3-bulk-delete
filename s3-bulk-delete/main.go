@@ -29,11 +29,13 @@ func main() {
 	}
 
 	var skipBatches map[int]bool
-	if conf.SkipBatches != "" {
-		skipBatches, mainErr = loadSkipFile(conf.SkipBatches)
+	if conf.SkipFile != "" {
+		skipBatches, mainErr = loadSkipFile(conf.SkipFile)
 		if mainErr != nil {
-			fmt.Fprintln(os.Stderr, mainErr.Error())
-			os.Exit(1)
+			if _, ok := mainErr.(*os.PathError); !ok {
+				fmt.Fprintln(os.Stderr, mainErr.Error())
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -63,11 +65,24 @@ func main() {
 
 	// accounting
 	go func() {
+		var err error
 		var completedCount int
+		var completedLog *os.File
 
-		for _ = range completed {
+		if conf.SkipFile != "" {
+			completedLog, err = os.OpenFile(conf.SkipFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			defer completedLog.Close()
+		}
+
+		for batchNum := range completed {
 			completedCount += 1
-			// if skipfile, write batchNum to it
+			if completedLog != nil {
+				fmt.Fprintf(completedLog, "%d\n", batchNum)
+			}
 		}
 
 		done <- completedCount
@@ -135,7 +150,7 @@ func main() {
 				// no more input
 				break
 			}
-			if conf.SkipBatches != "" {
+			if conf.SkipFile != "" {
 				if _, exists := skipBatches[batchNum]; exists {
 					if !conf.Quiet {
 						fmt.Fprintf(os.Stdout, "Skipped batch %d\n", batchNum)

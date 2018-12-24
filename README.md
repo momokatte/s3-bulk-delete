@@ -3,7 +3,7 @@ s3-bulk-delete
 
 A Go app for bulk-deleting files from an Amazon S3 bucket using the Multi-Object Delete operation.
 
-Accepts a file containing batch numbers to skip so the input file can be run again after interruption.
+Supports stop/resume: optionally writes completed batch numbers to a file, and reads from that file on startup to load batch numbers to skip.
 
 Usage
 -----
@@ -21,7 +21,7 @@ The application will receive a list of S3 keys via standard input, one key per l
 
 Provide the AWS region and S3 bucket name via flags:
 
-		<input-keys.txt s3-bulk-delete -region us-east-1 -bucket so-many-files
+		<input-keys.txt s3-bulk-delete -region us-east-1 -bucket so-many-files -skip deleted-batches.txt
 
 Request rate
 ------------
@@ -33,9 +33,8 @@ Roadmap
 
 December 2018:
 
-* Output completed batch numbers to skip-file
 * App-level incremental/exponential backoff on API error
 
 January 2018:
 
-* Metrics
+* More metrics
