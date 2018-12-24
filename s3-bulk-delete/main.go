@@ -52,12 +52,26 @@ func main() {
 	keysInput := make(chan string, conf.BatchSize*concurrency)
 	batches := make(chan keyBatch, concurrency*2)
 	batchesConsumed := make(chan bool)
+	completed := make(chan int)
+	done := make(chan int)
 
 	if !conf.Quiet {
 		fmt.Fprintf(os.Stdout, "Batch size: %d\n", conf.BatchSize)
 		fmt.Fprintf(os.Stdout, "Request interval: %dms\n", interval)
 		fmt.Fprintf(os.Stdout, "Maximum concurrency: %d\n", concurrency)
 	}
+
+	// accounting
+	go func() {
+		var completedCount int
+
+		for _ = range completed {
+			completedCount += 1
+			// if skipfile, write batchNum to it
+		}
+
+		done <- completedCount
+	}()
 
 	// deleter (batch consumer)
 	go func() {
@@ -81,6 +95,7 @@ func main() {
 					err := s3Deleter.DeleteKeys(batch.Keys)
 					if err == nil {
 						dur = time.Now().Sub(start)
+						completed <- batch.Num
 						break
 					}
 					if bErr, ok := err.(BatchError); ok {
@@ -130,8 +145,11 @@ func main() {
 			}
 			batches <- keyBatch{batchNum, keys[:keyIdx]}
 		}
+
 		close(batches)
 	}()
+
+	mainStart := time.Now()
 
 	// key producer
 	mainErr = scanInputKeys(os.Stdin, keysInput)
@@ -147,6 +165,19 @@ func main() {
 	// drain all the tokens after consumers are done with them
 	for i := concurrency; i > 0; i -= 1 {
 		_ = cLim.AcquireToken()
+	}
+	close(completed)
+
+	mainDur := time.Now().Sub(mainStart)
+
+	completedCount := <-done
+
+	if !conf.Quiet {
+		r := float64(completedCount*conf.BatchSize) / mainDur.Seconds()
+
+		fmt.Fprintf(os.Stdout, "Deleted batches: %d\n", completedCount)
+		fmt.Fprintf(os.Stdout, "Duration: %s\n", mainDur.String())
+		fmt.Fprintf(os.Stdout, "Rate: %d objects/sec\n", int(r))
 	}
 }
 
