@@ -49,7 +49,7 @@ func main() {
 	} else if concurrency > conf.CMax {
 		concurrency = conf.CMax
 	}
-	cLim := limiter.NewTokenChanLimiter(uint(concurrency))
+	cLim := NewConcurrencyFailLimiter(concurrency, 1000)
 
 	keysInput := make(chan string, conf.BatchSize*concurrency)
 	batches := make(chan keyBatch, concurrency*2)
@@ -91,27 +91,31 @@ func main() {
 	// deleter (batch consumer)
 	go func() {
 		rLim := limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(interval)*time.Millisecond))
+		fLim := NewCappedBackoffLimiter(9, Pow2Exp(uint(interval)))
 
 		for batch := range batches {
 			// enforce concurrency limit
-			t := cLim.AcquireToken()
+			cLim.CheckWait()
 
 			go func(batch keyBatch) {
 				var dur time.Duration
 				for {
-					if rLim != nil {
-						// enforce request rate limit
-						rLim.CheckWait()
-					}
+					// enforce request rate limit
+					rLim.CheckWait()
 					if !conf.Quiet {
 						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batch.Num)
 					}
 					start := time.Now()
 					err := s3Deleter.DeleteKeys(batch.Keys)
+					fLim.Report(err == nil)
+					cLim.Report(err == nil)
 					if err == nil {
 						dur = time.Now().Sub(start)
+						if !conf.Quiet {
+							fmt.Fprintf(os.Stdout, "Deleted batch %d (%s)\n", batch.Num, dur.String())
+						}
 						completed <- batch.Num
-						break
+						return
 					}
 					if bErr, ok := err.(BatchError); ok {
 						if !strings.Contains(bErr.Messages[0], " try again") {
@@ -123,11 +127,11 @@ func main() {
 					}
 					// log, but retry
 					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batch.Num, err.Error())
+					// enforce concurrency again, probably reduced by failures
+					cLim.CheckWait()
+					// enforce backoff
+					fLim.CheckWait()
 				}
-				if !conf.Quiet {
-					fmt.Fprintf(os.Stdout, "Deleted batch %d (%s)\n", batch.Num, dur.String())
-				}
-				cLim.ReleaseToken(t)
 			}(batch)
 		}
 
@@ -177,10 +181,8 @@ func main() {
 	// wait until last batch of keys is consumed
 	<-batchesConsumed
 
-	// drain all the tokens after consumers are done with them
-	for i := concurrency; i > 0; i -= 1 {
-		_ = cLim.AcquireToken()
-	}
+	cLim.WaitDone(time.Second * 2)
+
 	close(completed)
 
 	mainDur := time.Now().Sub(mainStart)
