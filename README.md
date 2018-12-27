@@ -33,9 +33,15 @@ Through trial and error I have determined that the S3 Multi-Object Delete operat
 I've also found that API response times degrade with high concurrency and will sometimes result in "internal error" responses. 12 concurrent requests provides a good balance between response time and total batch throughput.
 
 
+API request costs
+-----------------
+
+DELETE requests are free for 'S3 Standard' and 'S3 Intelligent-Tiering' storage classes. Pricing for other storage classes is [here](https://aws.amazon.com/s3/pricing/#Request_pricing).
+
+
 Roadmap
 -------
 
-January 2018:
+January 2019:
 
-* More metrics
+- More metrics

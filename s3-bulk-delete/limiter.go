@@ -106,6 +106,9 @@ func (l *CappedBackoffLimiter) Report(success bool) {
 
 func Pow2Exp(base uint) func(uint) uint {
 	return func(failCount uint) uint {
+		if failCount == 0 {
+			return 0
+		}
 		exp := backoff.Pow2(failCount)
 		if exp > math.MaxUint64/base {
 			return math.MaxUint64
