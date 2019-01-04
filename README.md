@@ -44,4 +44,5 @@ Roadmap
 
 January 2019:
 
+- Use fixed pool of consumer goroutines instead of goroutine per batch
 - More metrics
