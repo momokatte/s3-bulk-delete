@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	limiter "github.com/momokatte/go-limiter"
@@ -49,11 +50,9 @@ func main() {
 	} else if concurrency > conf.CMax {
 		concurrency = conf.CMax
 	}
-	cLim := NewConcurrencyFailLimiter(concurrency, 1000)
 
 	keysInput := make(chan string, conf.BatchSize*concurrency)
 	batches := make(chan keyBatch, concurrency*2)
-	batchesConsumed := make(chan bool)
 	completed := make(chan int)
 	done := make(chan int)
 
@@ -88,34 +87,37 @@ func main() {
 		done <- completedCount
 	}()
 
-	// deleter (batch consumer)
-	go func() {
-		rLim := limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(interval)*time.Millisecond))
-		fLim := NewCappedBackoffLimiter(9, Pow2Exp(uint(interval)))
+	cLim := NewConcurrencyFailLimiter(concurrency, 1000)
+	rLim := limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(interval)*time.Millisecond))
+	fLim := NewCappedBackoffLimiter(9, Pow2Exp(uint(interval)))
 
-		for batch := range batches {
-			// enforce concurrency limit
-			cLim.CheckWait()
+	var deleterWG sync.WaitGroup
+	deleterWG.Add(concurrency)
 
-			go func(batch keyBatch) {
-				var dur time.Duration
+	// create static pool of deleter (batch consumer) goroutines
+	for i := concurrency; i > 0; i -= 1 {
+		go func() {
+			for batch := range batches {
+				cLim.CheckWait()
+
+				// retry on most API errors until batch is deleted
 				for {
-					// enforce request rate limit
+					// enforce API request rate limit
 					rLim.CheckWait()
 					if !conf.Quiet {
 						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batch.Num)
 					}
 					start := time.Now()
 					err := s3Deleter.DeleteKeys(batch.Keys)
+					dur := time.Now().Sub(start)
 					fLim.Report(err == nil)
 					cLim.Report(err == nil)
 					if err == nil {
-						dur = time.Now().Sub(start)
 						if !conf.Quiet {
 							fmt.Fprintf(os.Stdout, "Deleted batch %d (%s)\n", batch.Num, dur.String())
 						}
 						completed <- batch.Num
-						return
+						break
 					}
 					if bErr, ok := err.(BatchError); ok {
 						if !strings.Contains(bErr.Messages[0], " try again") {
@@ -125,18 +127,17 @@ func main() {
 							os.Exit(2)
 						}
 					}
-					// log, but retry
+					// log error
 					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batch.Num, err.Error())
-					// enforce concurrency again, probably reduced by failures
+					// throttle concurrency
 					cLim.CheckWait()
 					// enforce backoff
 					fLim.CheckWait()
 				}
-			}(batch)
-		}
-
-		batchesConsumed <- true
-	}()
+			}
+			deleterWG.Done()
+		}()
+	}
 
 	// batcher (key consumer)
 	go func() {
@@ -178,10 +179,7 @@ func main() {
 	}
 	close(keysInput)
 
-	// wait until last batch of keys is consumed
-	<-batchesConsumed
-
-	cLim.WaitDone(time.Second * 2)
+	deleterWG.Wait()
 
 	close(completed)
 
