@@ -1,118 +1,88 @@
 package main
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"sync"
 	"time"
 
-	backoff "github.com/momokatte/go-backoff"
+	limiter "github.com/momokatte/go-limiter"
 )
 
-type ConcurrencyFailLimiter struct {
-	available    chan struct{}
-	active       chan struct{}
-	failed       chan struct{}
-	restoreDelay int
+type IntervalFailLimiter struct {
+	iLim         *limiter.IntervalLimiter
+	mu           sync.Mutex
+	failCount    int
+	failMax      int
+	baseInterval time.Duration
+	maxInterval  time.Duration
 }
 
-func NewConcurrencyFailLimiter(capacity int, restoreDelay int) *ConcurrencyFailLimiter {
-	l := &ConcurrencyFailLimiter{
-		available:    make(chan struct{}, capacity),
-		active:       make(chan struct{}, capacity),
-		failed:       make(chan struct{}, capacity),
-		restoreDelay: restoreDelay,
+func NewIntervalFailLimiter(baseInterval, maxInterval time.Duration) *IntervalFailLimiter {
+	l := &IntervalFailLimiter{
+		iLim:         limiter.NewIntervalLimiter(baseInterval),
+		baseInterval: baseInterval,
+		maxInterval:  maxInterval,
 	}
-	for i := 0; i < capacity; i += 1 {
-		l.available <- struct{}{}
+	if baseInterval == maxInterval {
+		return l
+	}
+	for gpR2Duration(l.baseInterval, l.failMax) < l.maxInterval {
+		l.failMax += 1
 	}
 	return l
 }
 
-func (l *ConcurrencyFailLimiter) CheckWait() {
-	l.active <- <-l.available
-	return
+func (l *IntervalFailLimiter) CheckWait() {
+	l.iLim.CheckWait()
 }
 
-func (l *ConcurrencyFailLimiter) Report(success bool) {
-	if success {
-		l.available <- <-l.active
-
-		select {
-		case t := <-l.failed:
-			go l.restore(t)
-		default:
-		}
-		return
-	}
-	t := <-l.active
-	if len(l.available) == 0 && len(l.active) == 0 {
-		go l.restore(t)
-		return
-	}
-	l.failed <- t
-}
-
-func (l *ConcurrencyFailLimiter) WaitDone(d time.Duration) {
-	lastActive := time.Now()
-	for {
-		if len(l.available) != cap(l.available) {
-			lastActive = time.Now()
-		}
-		if time.Now().Sub(lastActive) > d {
-			return
-		}
-		time.Sleep(time.Duration(250) * time.Millisecond)
-	}
-}
-
-func (l *ConcurrencyFailLimiter) restore(t struct{}) {
-	time.Sleep(time.Duration(l.restoreDelay) * time.Millisecond)
-	l.available <- t
-}
-
-type CappedBackoffLimiter struct {
-	mu          sync.Mutex
-	failCount   uint
-	failMax     uint
-	backOffFunc func(uint) uint
-}
-
-func NewCappedBackoffLimiter(failMax uint, backOffFunc func(uint) uint) (l *CappedBackoffLimiter) {
-	l = &CappedBackoffLimiter{
-		failMax:     failMax,
-		backOffFunc: backOffFunc,
-	}
-	return
-}
-
-func (l *CappedBackoffLimiter) CheckWait() {
-	if l.failCount == 0 {
-		return
-	}
-	if sleep := l.backOffFunc(l.failCount); sleep > 0 {
-		time.Sleep(time.Duration(sleep) * time.Millisecond)
-	}
-}
-
-func (l *CappedBackoffLimiter) Report(success bool) {
+func (l *IntervalFailLimiter) Report(success bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if success && l.failCount > 0 {
 		l.failCount -= 1
 	} else if !success && l.failCount < l.failMax {
 		l.failCount += 1
+	} else {
+		return
 	}
+	var d time.Duration
+	if l.failCount == l.failMax {
+		d = l.maxInterval
+	} else {
+		d = gpR2Duration(l.baseInterval, l.failCount)
+	}
+	l.iLim.SetInterval(d)
+	fmt.Fprintf(os.Stderr, "Interval updated to %s\n", d.String())
 }
 
-func Pow2Exp(base uint) func(uint) uint {
-	return func(failCount uint) uint {
-		if failCount == 0 {
-			return 0
-		}
-		exp := backoff.Pow2(failCount)
-		if exp > math.MaxUint64/base {
-			return math.MaxUint64
-		}
-		return base * exp
+func gpR2Duration(scale time.Duration, index int) time.Duration {
+	if index == 0 {
+		return scale
 	}
+	return time.Duration(gpR2(scale.Nanoseconds(), index))
+}
+
+// GPr2 calculates a value in a geometric progression with the given scale factor and a common ratio of 2.
+func gpR2(scale int64, index int) int64 {
+	if index == 0 {
+		return scale
+	}
+	rk := pow2int64(uint(index))
+	if rk < math.MaxInt64/scale {
+		return scale * rk
+	}
+	return math.MaxInt64
+}
+
+/*
+Calculate power of 2, but don't go over 2^63.
+*/
+func pow2int64(exponent uint) int64 {
+	if exponent > 63 {
+		exponent = 63
+	}
+	return 1 << exponent
 }

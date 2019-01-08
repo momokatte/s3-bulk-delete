@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	limiter "github.com/momokatte/go-limiter"
 )
 
 func main() {
@@ -87,9 +85,7 @@ func main() {
 		done <- completedCount
 	}()
 
-	cLim := NewConcurrencyFailLimiter(concurrency, 1000)
-	rLim := limiter.NewBurstRateLimiter(limiter.NewRate(1, time.Duration(interval)*time.Millisecond))
-	fLim := NewCappedBackoffLimiter(9, Pow2Exp(uint(interval)))
+	lim := NewIntervalFailLimiter(time.Duration(interval)*time.Millisecond, time.Second*10)
 
 	var deleterWG sync.WaitGroup
 	deleterWG.Add(concurrency)
@@ -98,20 +94,17 @@ func main() {
 	for i := concurrency; i > 0; i -= 1 {
 		go func() {
 			for batch := range batches {
-				cLim.CheckWait()
-
 				// retry on most API errors until batch is deleted
 				for {
 					// enforce API request rate limit
-					rLim.CheckWait()
+					lim.CheckWait()
 					if !conf.Quiet {
 						fmt.Fprintf(os.Stdout, "Deleting batch %d\n", batch.Num)
 					}
 					start := time.Now()
 					err := s3Deleter.DeleteKeys(batch.Keys)
 					dur := time.Now().Sub(start)
-					fLim.Report(err == nil)
-					cLim.Report(err == nil)
+					lim.Report(err == nil)
 					if err == nil {
 						if !conf.Quiet {
 							fmt.Fprintf(os.Stdout, "Deleted batch %d (%s)\n", batch.Num, dur.String())
@@ -129,10 +122,6 @@ func main() {
 					}
 					// log error
 					fmt.Fprintf(os.Stderr, "[Batch %d] %s\n", batch.Num, err.Error())
-					// throttle concurrency
-					cLim.CheckWait()
-					// enforce backoff
-					fLim.CheckWait()
 				}
 			}
 			deleterWG.Done()

@@ -44,5 +44,4 @@ Roadmap
 
 January 2019:
 
-- Use rate limiter with adjustable interval
 - More metrics
