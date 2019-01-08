@@ -22,7 +22,29 @@ The application will receive a list of S3 keys via standard input, one key per l
 
 Provide the AWS region and S3 bucket name via flags:
 
-		<input-keys.txt s3-bulk-delete -region us-east-1 -bucket so-many-files -skip deleted-batches.txt
+		<s3-keys.txt s3-bulk-delete -region us-east-1 -bucket my-bucket -skip deleted-batches.txt
+
+
+API Credentials
+---------------
+
+The application supports these AWS [credential providers](https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html#specifying-credentials):
+
+- environment variables
+- shared credentials file
+- EC2 Instance Metadata service
+
+
+Specifying keys for deletion
+----------------------------
+
+The application does not retrieve key listings from S3; they must be provided from an external source.
+
+If you have [Amazon S3 Inventory](https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-inventory.html) enabled for your bucket, it provides file data that can be used to generate a list of keys to delete.
+
+The [AWS command-line interface](https://docs.aws.amazon.com/cli/latest/reference/s3/ls.html) can list all keys with a specified prefix. Here's an example that uses some additional programs to filter out folder objects and file metadata:
+
+		aws --region=us-east-1 s3 ls --recursive s3://my-bucket/folderol/ | grep -v "\/$" | awk '{ print $4 }' >s3-keys.txt
 
 
 Request rate and concurrency
@@ -44,4 +66,5 @@ Roadmap
 
 January 2019:
 
+- IAM role support
 - More metrics
