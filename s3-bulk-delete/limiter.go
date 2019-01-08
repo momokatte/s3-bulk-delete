@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"math"
-	"os"
 	"sync"
 	"time"
 
@@ -55,7 +53,6 @@ func (l *IntervalFailLimiter) Report(success bool) {
 		d = gpR2Duration(l.baseInterval, l.failCount)
 	}
 	l.iLim.SetInterval(d)
-	fmt.Fprintf(os.Stderr, "Interval updated to %s\n", d.String())
 }
 
 func gpR2Duration(scale time.Duration, index int) time.Duration {
