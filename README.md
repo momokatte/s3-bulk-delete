@@ -11,18 +11,20 @@ Usage
 
 The application will receive a list of S3 keys via standard input, one key per line. Example input:
 
-		prefix_01/file_01.dat
-		prefix_01/file_02.dat
-		prefix_01/file_03.dat
-		prefix_01/file_04.dat
-		prefix_02/file_01.dat
-		prefix_02/file_02.dat
-		prefix_02/file_03.dat
-		prefix_02/file_04.dat
+> prefix_01/file_01.dat
+> prefix_01/file_02.dat
+> prefix_01/file_03.dat
+> prefix_01/file_04.dat
+> prefix_02/file_01.dat
+> prefix_02/file_02.dat
+> prefix_02/file_03.dat
+> prefix_02/file_04.dat
 
 Provide the AWS region and S3 bucket name via flags:
 
-		<s3-keys.txt s3-bulk-delete -region us-east-1 -bucket my-bucket -skip deleted-batches.txt
+```bash
+<s3-keys.txt s3-bulk-delete -region us-east-1 -bucket my-bucket -skip deleted-batches.txt
+```
 
 
 API Credentials
@@ -44,7 +46,9 @@ If you have [Amazon S3 Inventory](https://docs.aws.amazon.com/AmazonS3/latest/de
 
 The [AWS command-line interface](https://docs.aws.amazon.com/cli/latest/reference/s3/ls.html) can list all keys with a specified prefix. Here's an example that uses some additional programs to filter out folder objects and file metadata:
 
-		aws --region=us-east-1 s3 ls --recursive s3://my-bucket/folderol/ | grep -v "\/$" | awk '{ print $4 }' >s3-keys.txt
+```bash
+aws --region=us-east-1 s3 ls --recursive s3://my-bucket/folderol/ | grep -v "\/$" | awk '{ print $4 }' >s3-keys.txt
+```
 
 If you just want to delete a few hundred or thousand keys with a particular prefix without previewing them, the AWS command-line interface provides a [recursive delete option](https://docs.aws.amazon.com/cli/latest/reference/s3/rm.html).
 
