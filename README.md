@@ -11,14 +11,16 @@ Usage
 
 The application will receive a list of S3 keys via standard input, one key per line. Example input:
 
-> prefix_01/file_01.dat
-> prefix_01/file_02.dat
-> prefix_01/file_03.dat
-> prefix_01/file_04.dat
-> prefix_02/file_01.dat
-> prefix_02/file_02.dat
-> prefix_02/file_03.dat
-> prefix_02/file_04.dat
+```
+prefix_01/file_01.dat
+prefix_01/file_02.dat
+prefix_01/file_03.dat
+prefix_01/file_04.dat
+prefix_02/file_01.dat
+prefix_02/file_02.dat
+prefix_02/file_03.dat
+prefix_02/file_04.dat
+```
 
 Provide the AWS region and S3 bucket name via flags:
 
