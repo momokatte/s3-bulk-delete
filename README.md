@@ -77,4 +77,5 @@ Roadmap
 January 2019:
 
 - IAM role support
+- Dockerize and build to DockerHub
 - More metrics
