@@ -46,7 +46,7 @@ The [AWS command-line interface](https://docs.aws.amazon.com/cli/latest/referenc
 
 		aws --region=us-east-1 s3 ls --recursive s3://my-bucket/folderol/ | grep -v "\/$" | awk '{ print $4 }' >s3-keys.txt
 
-If you just want to delete all keys with a particular prefix without previewing them, the AWS command-line interface provides a [recursive delete option](https://docs.aws.amazon.com/cli/latest/reference/s3/rm.html).
+If you just want to delete a few hundred or thousand keys with a particular prefix without previewing them, the AWS command-line interface provides a [recursive delete option](https://docs.aws.amazon.com/cli/latest/reference/s3/rm.html).
 
 
 Request rate and concurrency
