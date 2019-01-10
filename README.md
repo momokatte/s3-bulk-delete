@@ -56,6 +56,8 @@ Through trial and error I have determined that the S3 Multi-Object Delete operat
 
 I've also found that API response times degrade with high concurrency and will sometimes result in "internal error" responses. 12 concurrent requests provides a good balance between response time and total batch throughput.
 
+With the default settings, the application will realistically delete 3000 objects per second or just under 11 million objects per hour. If you have hundreds of millions of objects to delete under different prefixes, it would be best to split up the input keys and run multiple instances of the application.
+
 
 API request costs
 -----------------
